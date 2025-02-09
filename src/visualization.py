@@ -18,9 +18,7 @@ logger = setup_logger(__name__)
 
 
 def create_coverage_polygon(
-    ant: Antenna,
-    radius_km: float,
-    elevation_data: Optional[ElevationData] = None
+    ant: Antenna, radius_km: float, elevation_data: Optional[ElevationData] = None
 ) -> Polygon:
     """
     Create a polygon representing the coverage area of an antenna, considering terrain.
@@ -34,54 +32,66 @@ def create_coverage_polygon(
         Shapely Polygon representing the coverage area
     """
     logger.debug(f"Creating coverage polygon for {ant.name} with radius {radius_km}km")
-    
+
     # For backhaul antennas, create a narrow beam pattern
     is_backhaul = "backhaul" in ant.name.lower()
-    
+
     # Calculate the center point
     center = (ant.longitude, ant.latitude)
     points = []
-    
+
     if is_backhaul:
         # Use antenna's azimuth and beam width to create a narrow beam pattern
         azimuth = ant.azimuth if ant.azimuth is not None else 0
         beam_width = ant.beam_width if ant.beam_width is not None else 10  # Default 10° beam width
-        
+
         # Create points for a narrow beam
         # Start with the center point
         points.append(center)
-        
+
         # Calculate angles for the beam edges
-        left_angle = (azimuth - beam_width/2) % 360
-        right_angle = (azimuth + beam_width/2) % 360
-        
+        left_angle = (azimuth - beam_width / 2) % 360
+        right_angle = (azimuth + beam_width / 2) % 360
+
         # Add points along the beam edges
-        distances = [radius_km * d for d in [0.25, 0.5, 0.75, 1.0]]  # Multiple points along each edge
+        distances = [
+            radius_km * d for d in [0.25, 0.5, 0.75, 1.0]
+        ]  # Multiple points along each edge
         for distance in distances:
             # Left edge point
-            dx = (distance / 111.0) * math.cos(math.radians(left_angle)) / math.cos(math.radians(ant.latitude))
+            dx = (
+                (distance / 111.0)
+                * math.cos(math.radians(left_angle))
+                / math.cos(math.radians(ant.latitude))
+            )
             dy = (distance / 111.0) * math.sin(math.radians(left_angle))
             points.append((center[0] + dx, center[1] + dy))
-            
+
             # Right edge point
-            dx = (distance / 111.0) * math.cos(math.radians(right_angle)) / math.cos(math.radians(ant.latitude))
+            dx = (
+                (distance / 111.0)
+                * math.cos(math.radians(right_angle))
+                / math.cos(math.radians(ant.latitude))
+            )
             dy = (distance / 111.0) * math.sin(math.radians(right_angle))
             points.append((center[0] + dx, center[1] + dy))
-        
+
         # Create and return the beam polygon
         try:
             return Polygon(points)
         except Exception as e:
             logger.warning(f"Failed to create backhaul beam polygon for {ant.name}: {str(e)}")
             # Create a minimal directional indicator
-            return Point(center).buffer(0.2/111.0)  # 200m radius minimum
-    
+            return Point(center).buffer(0.2 / 111.0)  # 200m radius minimum
+
     # For non-backhaul antennas, use the original coverage calculation
     # Get antenna base elevation
     if elevation_data:
         ant_elevation = elevation_data.get_elevation(ant.latitude, ant.longitude)
         ant_height = ant_elevation + ant.height
-        logger.debug(f"Antenna {ant.name} base elevation: {ant_elevation}m, total height: {ant_height}m")
+        logger.debug(
+            f"Antenna {ant.name} base elevation: {ant_elevation}m, total height: {ant_height}m"
+        )
     else:
         ant_height = ant.height
 
@@ -116,23 +126,23 @@ def create_coverage_polygon(
             # Calculate test point location
             dx = distance * math.cos(angle_rad) / 111.0
             dy = distance * math.sin(angle_rad) / 111.0
-            
+
             # Adjust for latitude compression
             dx = dx / math.cos(math.radians(ant.latitude))
-            
+
             test_lon = center[0] + dx
             test_lat = center[1] + dy
 
             if elevation_data:
                 # Get elevation profile
                 profile = elevation_data.get_elevation_profile(
-                    ant.latitude, ant.longitude,
-                    test_lat, test_lon,
-                    num_points=10
+                    ant.latitude, ant.longitude, test_lat, test_lon, num_points=10
                 )
 
                 if not profile:  # Skip if we couldn't get elevation data
-                    logger.warning(f"Could not get elevation profile for {ant.name} at angle {angle}")
+                    logger.warning(
+                        f"Could not get elevation profile for {ant.name} at angle {angle}"
+                    )
                     continue
 
                 # Get end point elevation and add receiver height
@@ -143,19 +153,19 @@ def create_coverage_polygon(
                 for i, point in enumerate(profile[1:-1], 1):
                     # Calculate ratio along the path
                     ratio = i / (len(profile) - 1)
-                    
+
                     # Calculate expected height at this point (straight line)
                     expected_height = ant_height + (end_elevation - ant_height) * ratio
-                    
+
                     # Calculate Fresnel zone clearance
                     wavelength = 3e8 / (ant.frequency * 1e9)  # Convert GHz to Hz
                     fresnel_radius = math.sqrt(wavelength * distance * 1000 / 4)  # in meters
                     required_clearance = fresnel_radius * 0.6  # 60% of first Fresnel zone
-                    
+
                     # Add earth curvature correction
                     # Earth's radius is approximately 6371 km
                     earth_curvature = (distance * 1000 * ratio) ** 2 / (2 * 6371000)
-                    
+
                     # Check if terrain blocks the path
                     if point.elevation > (expected_height - required_clearance - earth_curvature):
                         has_los = False
@@ -163,7 +173,7 @@ def create_coverage_polygon(
 
                 if not has_los:
                     break
-            
+
             max_distance = distance
 
         # Add the point at the maximum distance for this angle
@@ -174,7 +184,9 @@ def create_coverage_polygon(
 
     # Need at least 3 points to create a polygon
     if len(points) < 3:
-        logger.warning(f"Not enough points to create polygon for {ant.name}, creating minimal circle")
+        logger.warning(
+            f"Not enough points to create polygon for {ant.name}, creating minimal circle"
+        )
         return Point(center).buffer(0.1 / 111.0)  # 100m radius minimum
 
     # Create and return the polygon
@@ -252,14 +264,14 @@ def plot_coverage_map(
     for ant in tqdm(antennas, desc="Processing antennas"):
         names.append(ant.name)
         points.append(Point(ant.longitude, ant.latitude))
-        
+
         coverage = create_coverage_polygon(ant, estimate_coverage_radius(ant), elevation_data)
-        
+
         # Validate and fix the coverage polygon if needed
         if not coverage.is_valid:
             logger.warning(f"Invalid coverage polygon for antenna {ant.name}. Attempting to fix...")
             coverage = make_valid(coverage)
-            
+
         if coverage.is_valid:
             # Add a small buffer to handle precision issues (1e-8 degrees ≈ 1mm)
             coverage = coverage.buffer(1e-8)
@@ -279,7 +291,7 @@ def plot_coverage_map(
             if not unified_coverage.is_valid:
                 logger.warning("Invalid unified coverage. Attempting to fix...")
                 unified_coverage = make_valid(unified_coverage)
-            
+
             coverage_gdf = gpd.GeoDataFrame(
                 {"name": ["Total Coverage Area"]},
                 geometry=[unified_coverage],

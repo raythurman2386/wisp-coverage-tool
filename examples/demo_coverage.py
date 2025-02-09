@@ -13,6 +13,7 @@ from src.utils.logger import setup_logger
 from typing import List
 import os
 
+
 def main():
     """Main demo function."""
     # Set up logging
@@ -38,7 +39,7 @@ def main():
             "frequency": 2.4,  # 2.4GHz for better penetration
             "beam_width": 360,
             "direction": 0,
-            "type": "omni"
+            "type": "omni",
         },
         # Sector antennas on main hub
         {
@@ -50,7 +51,7 @@ def main():
             "frequency": 5.8,
             "beam_width": 90,
             "direction": 0,
-            "type": "sector"
+            "type": "sector",
         },
         {
             "name": "Palmyra-Sector-East",
@@ -61,7 +62,7 @@ def main():
             "frequency": 5.8,
             "beam_width": 90,
             "direction": 90,
-            "type": "sector"
+            "type": "sector",
         },
         {
             "name": "Palmyra-Sector-South",
@@ -72,7 +73,7 @@ def main():
             "frequency": 5.8,
             "beam_width": 90,
             "direction": 180,
-            "type": "sector"
+            "type": "sector",
         },
         {
             "name": "Palmyra-Sector-West",
@@ -83,7 +84,7 @@ def main():
             "frequency": 5.8,
             "beam_width": 90,
             "direction": 270,
-            "type": "sector"
+            "type": "sector",
         },
         # Secondary Tower - New Salisbury
         {
@@ -95,7 +96,7 @@ def main():
             "frequency": 2.4,
             "beam_width": 360,
             "direction": 0,
-            "type": "omni"
+            "type": "omni",
         },
         # Sectors on New Salisbury tower
         {
@@ -107,7 +108,7 @@ def main():
             "frequency": 5.8,
             "beam_width": 90,
             "direction": 45,
-            "type": "sector"
+            "type": "sector",
         },
         {
             "name": "NewSalisbury-Sector-SE",
@@ -118,7 +119,7 @@ def main():
             "frequency": 5.8,
             "beam_width": 90,
             "direction": 135,
-            "type": "sector"
+            "type": "sector",
         },
         # Remote Tower - Corydon
         {
@@ -130,7 +131,7 @@ def main():
             "frequency": 2.4,
             "beam_width": 360,
             "direction": 0,
-            "type": "omni"
+            "type": "omni",
         },
         # Backhaul Links
         {
@@ -142,7 +143,7 @@ def main():
             "frequency": 5.8,
             "beam_width": 5,
             "direction": 170,
-            "type": "ptp"
+            "type": "ptp",
         },
         {
             "name": "NewSalisbury-Backhaul-North",
@@ -153,7 +154,7 @@ def main():
             "frequency": 5.8,
             "beam_width": 5,
             "direction": 350,
-            "type": "ptp"
+            "type": "ptp",
         },
         # Client Distribution Points
         {
@@ -165,7 +166,7 @@ def main():
             "frequency": 5.8,
             "beam_width": 120,
             "direction": 90,
-            "type": "sector"
+            "type": "sector",
         },
         {
             "name": "Palmyra-West-Relay",
@@ -176,8 +177,8 @@ def main():
             "frequency": 5.8,
             "beam_width": 120,
             "direction": 270,
-            "type": "sector"
-        }
+            "type": "sector",
+        },
     ]
 
     # Create Antenna objects
@@ -191,7 +192,7 @@ def main():
             power=config["power"],
             frequency=config["frequency"],
             beam_width=config["beam_width"],
-            azimuth=config["direction"]  # Use direction as azimuth
+            azimuth=config["direction"],  # Use direction as azimuth
         )
         antenna_objects.append(antenna)
 
@@ -215,7 +216,10 @@ def main():
     )
 
     logger.info("Coverage maps have been generated in the output directory")
-    logger.info("The GeoJSON files can be imported into mapping tools like QGIS, Mapbox, or Leaflet")
+    logger.info(
+        "The GeoJSON files can be imported into mapping tools like QGIS, Mapbox, or Leaflet"
+    )
+
 
 if __name__ == "__main__":
     main()
