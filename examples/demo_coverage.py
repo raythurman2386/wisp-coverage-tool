@@ -1,175 +1,221 @@
 import sys
 from pathlib import Path
 
-sys.path.append(str(Path(__file__).parent.parent))
+# Add project root to Python path
+project_root = Path(__file__).parent.parent
+sys.path.append(str(project_root))
 
 from src.antenna import Antenna
 from src.visualization import plot_coverage_map
-from src.coverage import estimate_coverage_radius
 from src.elevation import ElevationData
 from src.utils.logger import setup_logger
 
-logger = setup_logger(__name__)
-
-# Mock antenna data for Palmyra area
-mock_antenna_points = [
-    # Center of Palmyra - Omnidirectional hub
-    {
-        "name": "Hub-Omni",
-        "lon": -86.1091,
-        "lat": 38.4064,
-        "height": 40,
-        "power": 1000,
-        "frequency": 5.8,
-        # Omnidirectional - no beam_width or azimuth needed
-    },
-    # North coverage - 90-degree sector array
-    {
-        "name": "North-90W",
-        "lon": -86.1191,
-        "lat": 38.4264,
-        "height": 30,
-        "power": 1000,
-        "frequency": 5.8,
-        "beam_width": 90,
-        "azimuth": 270,  # Facing West
-    },
-    {
-        "name": "North-90E",
-        "lon": -86.1191,
-        "lat": 38.4264,
-        "height": 30,
-        "power": 1000,
-        "frequency": 5.8,
-        "beam_width": 90,
-        "azimuth": 90,  # Facing East
-    },
-    # East coverage - 30-degree sectors
-    {
-        "name": "East-30N",
-        "lon": -86.0891,
-        "lat": 38.4064,
-        "height": 35,
-        "power": 1000,
-        "frequency": 5.8,
-        "beam_width": 30,
-        "azimuth": 330,  # Facing Northwest
-    },
-    {
-        "name": "East-30S",
-        "lon": -86.0891,
-        "lat": 38.4064,
-        "height": 35,
-        "power": 1000,
-        "frequency": 5.8,
-        "beam_width": 30,
-        "azimuth": 210,  # Facing Southwest
-    },
-    # Point-to-Point backhaul links
-    {
-        "name": "PTP-West",
-        "lon": -86.1391,
-        "lat": 38.4064,
-        "height": 45,
-        "power": 1000,
-        "frequency": 5.8,
-        "beam_width": 5,
-        "azimuth": 90,  # Pointing East to hub
-    },
-    {
-        "name": "PTP-South",
-        "lon": -86.1091,
-        "lat": 38.3864,
-        "height": 45,
-        "power": 1000,
-        "frequency": 5.8,
-        "beam_width": 5,
-        "azimuth": 0,  # Pointing North to hub
-    },
-]
-
-
-def create_antennas():
-    """Create antenna objects from mock data."""
-    logger.info("Creating antenna objects from mock data")
-    antennas = []
-
-    for point in mock_antenna_points:
-        logger.debug(f"Creating antenna: {point['name']}")
-        antenna = Antenna(
-            name=point["name"],
-            longitude=point["lon"],
-            latitude=point["lat"],
-            height=point["height"],
-            power=point["power"],
-            frequency=point["frequency"],
-            beam_width=point.get("beam_width"),  # Optional
-            azimuth=point.get("azimuth"),  # Optional
-        )
-        antennas.append(antenna)
-
-    logger.info(f"Created {len(antennas)} antenna objects")
-    return antennas
-
-
-def analyze_coverage(antennas, elevation_data):
-    """Analyze coverage for each antenna."""
-    logger.info("Analyzing coverage for all antennas")
-
-    for antenna in antennas:
-        logger.debug(f"Analyzing antenna: {antenna.name}")
-
-        # Get coverage radius
-        coverage_radius = estimate_coverage_radius(antenna)
-
-        # Get average terrain elevation in coverage area
-        avg_elevation = elevation_data.get_average_elevation(
-            antenna.latitude,
-            antenna.longitude,
-            radius_km=coverage_radius / 2,  # Sample half the coverage radius
-        )
-
-        logger.info(f"\nAnalysis for {antenna.name}:")
-        logger.info(f"Location: ({antenna.latitude:.4f}, {antenna.longitude:.4f})")
-        logger.info(f"Height above ground: {antenna.height}m")
-        logger.info(f"Average terrain elevation: {avg_elevation:.1f}m")
-        logger.info(f"Total height above sea level: {antenna.height + avg_elevation:.1f}m")
-        logger.info(f"Estimated coverage radius: {coverage_radius:.2f}km")
-
+from typing import List
+import os
 
 def main():
+    """Main demo function."""
+    # Set up logging
+    logger = setup_logger(__name__)
     logger.info("Starting WISP Coverage Tool Demo")
-
-    # Create antenna objects
-    antennas = create_antennas()
-
-    # Initialize elevation data
-    logger.info("Initializing elevation data")
-    elevation_data = ElevationData()
-
-    # Analyze coverage for each antenna
-    analyze_coverage(antennas, elevation_data)
 
     # Create output directory if it doesn't exist
     output_dir = Path("output")
     output_dir.mkdir(exist_ok=True)
-    logger.info(f"Created output directory: {output_dir}")
 
-    # Create and display coverage map with unified coverage
-    logger.info("\nGenerating coverage map and exporting data...")
+    # Initialize elevation data
+    elevation_data = ElevationData()
+
+    # Define antenna configurations for a realistic WISP network
+    antennas = [
+        # Main Tower 1 - Palmyra Central Hub
+        {
+            "name": "Palmyra-Hub-Omni",
+            "lon": -86.1091,
+            "lat": 38.3864,
+            "height": 45,  # Tall tower for central distribution
+            "power": 1000,
+            "frequency": 2.4,  # 2.4GHz for better penetration
+            "beam_width": 360,
+            "direction": 0,
+            "type": "omni"
+        },
+        # Sector antennas on main hub
+        {
+            "name": "Palmyra-Sector-North",
+            "lon": -86.1091,
+            "lat": 38.3864,
+            "height": 43,
+            "power": 1000,
+            "frequency": 5.8,
+            "beam_width": 90,
+            "direction": 0,
+            "type": "sector"
+        },
+        {
+            "name": "Palmyra-Sector-East",
+            "lon": -86.1091,
+            "lat": 38.3864,
+            "height": 43,
+            "power": 1000,
+            "frequency": 5.8,
+            "beam_width": 90,
+            "direction": 90,
+            "type": "sector"
+        },
+        {
+            "name": "Palmyra-Sector-South",
+            "lon": -86.1091,
+            "lat": 38.3864,
+            "height": 43,
+            "power": 1000,
+            "frequency": 5.8,
+            "beam_width": 90,
+            "direction": 180,
+            "type": "sector"
+        },
+        {
+            "name": "Palmyra-Sector-West",
+            "lon": -86.1091,
+            "lat": 38.3864,
+            "height": 43,
+            "power": 1000,
+            "frequency": 5.8,
+            "beam_width": 90,
+            "direction": 270,
+            "type": "sector"
+        },
+        # Secondary Tower - New Salisbury
+        {
+            "name": "NewSalisbury-Hub-Omni",
+            "lon": -86.1556,
+            "lat": 38.3147,
+            "height": 40,
+            "power": 1000,
+            "frequency": 2.4,
+            "beam_width": 360,
+            "direction": 0,
+            "type": "omni"
+        },
+        # Sectors on New Salisbury tower
+        {
+            "name": "NewSalisbury-Sector-NE",
+            "lon": -86.1556,
+            "lat": 38.3147,
+            "height": 38,
+            "power": 1000,
+            "frequency": 5.8,
+            "beam_width": 90,
+            "direction": 45,
+            "type": "sector"
+        },
+        {
+            "name": "NewSalisbury-Sector-SE",
+            "lon": -86.1556,
+            "lat": 38.3147,
+            "height": 38,
+            "power": 1000,
+            "frequency": 5.8,
+            "beam_width": 90,
+            "direction": 135,
+            "type": "sector"
+        },
+        # Remote Tower - Corydon
+        {
+            "name": "Corydon-Hub-Omni",
+            "lon": -86.1225,
+            "lat": 38.2120,
+            "height": 35,
+            "power": 1000,
+            "frequency": 2.4,
+            "beam_width": 360,
+            "direction": 0,
+            "type": "omni"
+        },
+        # Backhaul Links
+        {
+            "name": "Palmyra-Backhaul-South",
+            "lon": -86.1091,
+            "lat": 38.3864,
+            "height": 45,
+            "power": 1500,
+            "frequency": 5.8,
+            "beam_width": 5,
+            "direction": 170,
+            "type": "ptp"
+        },
+        {
+            "name": "NewSalisbury-Backhaul-North",
+            "lon": -86.1556,
+            "lat": 38.3147,
+            "height": 42,
+            "power": 1500,
+            "frequency": 5.8,
+            "beam_width": 5,
+            "direction": 350,
+            "type": "ptp"
+        },
+        # Client Distribution Points
+        {
+            "name": "Palmyra-East-Relay",
+            "lon": -86.0891,
+            "lat": 38.3864,
+            "height": 25,
+            "power": 800,
+            "frequency": 5.8,
+            "beam_width": 120,
+            "direction": 90,
+            "type": "sector"
+        },
+        {
+            "name": "Palmyra-West-Relay",
+            "lon": -86.1291,
+            "lat": 38.3864,
+            "height": 25,
+            "power": 800,
+            "frequency": 5.8,
+            "beam_width": 120,
+            "direction": 270,
+            "type": "sector"
+        }
+    ]
+
+    # Create Antenna objects
+    antenna_objects: List[Antenna] = []
+    for config in antennas:
+        antenna = Antenna(
+            name=config["name"],
+            latitude=config["lat"],
+            longitude=config["lon"],
+            height=config["height"],
+            power=config["power"],
+            frequency=config["frequency"],
+            beam_width=config["beam_width"],
+            azimuth=config["direction"]  # Use direction as azimuth
+        )
+        antenna_objects.append(antenna)
+
+    # Generate coverage maps
     plot_coverage_map(
-        antennas,
+        antennas=antenna_objects,
+        elevation_data=elevation_data,
         background_map=True,
-        save_path=output_dir / "coverage_map.png",
-        export_geojson=output_dir / "coverage_area.geojson",
+        save_path=output_dir / "coverage_unified.png",
+        export_geojson=output_dir / "coverage_unified.geojson",
         unified_view=True,
     )
 
-    logger.info("\nDemo completed successfully!")
-    logger.info("Coverage map has been saved to 'output/coverage_map.png'")
-    logger.info("Coverage area GeoJSON has been exported to 'output/coverage_area.geojson'")
-    logger.info("The GeoJSON file can be imported into mapping tools like QGIS, Mapbox, or Leaflet")
+    plot_coverage_map(
+        antennas=antenna_objects,
+        elevation_data=elevation_data,
+        background_map=True,
+        save_path=output_dir / "coverage_individual.png",
+        export_geojson=output_dir / "coverage_individual.geojson",
+        unified_view=False,
+    )
 
+    logger.info("Coverage maps have been generated in the output directory")
+    logger.info("The GeoJSON files can be imported into mapping tools like QGIS, Mapbox, or Leaflet")
 
 if __name__ == "__main__":
     main()
