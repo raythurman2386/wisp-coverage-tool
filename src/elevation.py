@@ -40,9 +40,7 @@ class ElevationData:
         # Get API key from environment
         self._api_key = os.getenv("OPEN_TOPO")
         if not self._api_key:
-            raise ValueError(
-                "OpenTopography API key not found. Please set OPEN_TOPO in .env file"
-            )
+            raise ValueError("OpenTopography API key not found. Please set OPEN_TOPO in .env file")
 
     def _get_srtm_tile_name(self, latitude: float, longitude: float) -> str:
         """
@@ -240,9 +238,7 @@ class ElevationData:
 
         # Get elevation for each point
         return [
-            ElevationPoint(
-                latitude=lat, longitude=lon, elevation=self.get_elevation(lat, lon)
-            )
+            ElevationPoint(latitude=lat, longitude=lon, elevation=self.get_elevation(lat, lon))
             for lat, lon in zip(lats, lons)
         ]
 

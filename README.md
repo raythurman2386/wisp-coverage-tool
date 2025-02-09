@@ -1,7 +1,7 @@
 # WISP Coverage Analysis Tool
 
 ## Project Overview
-This tool is designed to create coverage maps for Wireless Internet Service Providers (WISPs) using airFiber technology. It calculates and visualizes coverage areas based on antenna locations, specifications, and terrain data.
+This tool is designed to create coverage maps for Wireless Internet Service Providers (WISPs) using airFiber technology. It calculates and visualizes coverage areas based on antenna locations, specifications, and real terrain data.
 
 ## Project Structure
 ```
@@ -9,12 +9,20 @@ wisp_coverage_tool/
 │
 ├── src/
 │   ├── __init__.py
+│   ├── config/                # Configuration management
+│   │   ├── __init__.py
+│   │   └── logging_config.py  # Logging configuration
+│   │
+│   ├── utils/                 # Utility modules
+│   │   ├── __init__.py
+│   │   └── logger.py         # Logging implementation
+│   │
 │   ├── data_handling.py      # Data input/output operations
 │   ├── antenna.py            # Antenna class and related functions
 │   ├── coverage.py           # Coverage calculation functions
-│   ├── elevation.py          # Elevation data handling
+│   ├── elevation.py          # SRTM elevation data handling
 │   ├── visualization.py      # Plotting and mapping functions
-│   └── utils.py              # Utility functions
+│   └── helpers.py            # Helper functions
 │
 ├── tests/
 │   └── __init__.py
@@ -27,6 +35,7 @@ wisp_coverage_tool/
 │   └── demo_coverage.py     # Demo script
 │
 ├── requirements.txt
+├── .env                     # Environment variables (API keys)
 └── README.md
 ```
 
@@ -47,6 +56,13 @@ Implements core signal propagation and coverage analysis:
 - Coverage area determination considering terrain
 - Multiple antenna overlap analysis
 
+### Elevation Data (`src/elevation.py`)
+Handles terrain elevation data using NASA's SRTM dataset:
+- Downloads and caches SRTM elevation data
+- Provides elevation data for any lat/lon coordinate
+- Integrates with OpenTopography API for reliable data access
+- Efficient caching system for better performance
+
 ### Visualization (`src/visualization.py`)
 Handles all mapping and visualization functionality:
 - Base map integration using OpenStreetMap
@@ -61,10 +77,11 @@ Handles all mapping and visualization functionality:
 - Antenna data model
 - Basic visualization with mock data
 - Fundamental signal calculations
+- Real terrain elevation data integration using SRTM
+- Elevation data caching system
 
 ### Pending Implementation
-- Terrain analysis integration
-- Complete coverage calculation
+- Complete coverage calculation with terrain analysis
 - Interactive visualization
 - Data export functionality
 - Real antenna data integration
@@ -88,26 +105,6 @@ Handles all mapping and visualization functionality:
 - Ensure mock data testing capabilities
 - Validate calculations against real-world data when available
 
-## Future Development Priorities
-
-### Phase 1: Core Functionality
-- [ ] Implement terrain analysis
-- [ ] Complete coverage calculation algorithm
-- [ ] Add validation for antenna parameters
-- [ ] Implement basic data export
-
-### Phase 2: Enhanced Features
-- [ ] Add interactive visualization
-- [ ] Implement weather impact analysis
-- [ ] Add batch processing capabilities
-- [ ] Create coverage optimization suggestions
-
-### Phase 3: User Interface
-- [ ] Develop web interface
-- [ ] Add real-time calculation capabilities
-- [ ] Implement user data management
-- [ ] Create reporting functionality
-
 ## Technical Requirements
 
 ### Dependencies
@@ -119,7 +116,18 @@ matplotlib>=3.3.0
 contextily>=1.1.0
 rasterio>=1.2.0
 shapely>=1.7.0
+requests>=2.31.0
+python-dotenv>=1.0.0
 ```
+
+### API Keys
+The tool requires an API key from OpenTopography to access SRTM elevation data:
+1. Sign up for an API key at [OpenTopography](https://portal.opentopography.org/apidocs/)
+2. Create a `.env` file in the project root
+3. Add your API key:
+   ```
+   OPEN_TOPO=your_api_key_here
+   ```
 
 ### Installation
 1. Clone the repository
@@ -132,13 +140,18 @@ shapely>=1.7.0
    ```bash
    pip install -r requirements.txt
    ```
+4. Set up your `.env` file with the OpenTopography API key
 
 ## Usage Examples
 
-### Basic Coverage Map
+### Basic Coverage Map with Real Terrain
 ```python
 from src.antenna import Antenna
+from src.elevation import ElevationData
 from src.visualization import plot_coverage_map
+
+# Initialize elevation data
+elevation_data = ElevationData()
 
 # Create antenna object
 antenna = Antenna(
@@ -150,8 +163,8 @@ antenna = Antenna(
     frequency=5.8
 )
 
-# Generate and display coverage map
-plot_coverage_map([antenna])
+# Generate and display coverage map with terrain consideration
+plot_coverage_map([antenna], elevation_data=elevation_data)
 ```
 
 ## Contributing Guidelines
@@ -163,107 +176,41 @@ plot_coverage_map([antenna])
 ## Notes for LLM Development Continuation
 
 ### Project Context
-1. This tool is designed for WISP (Wireless Internet Service Provider) coverage analysis in Palmyra, Indiana
+1. This tool is designed for WISP coverage analysis in Palmyra, Indiana
 2. Coverage calculations are calibrated to real-world observations:
    - Coverage area: 8-mile circumference
    - Base radius: 4 miles
    - Adjustments made for antenna height and power
    - Reference configuration: 30m height, 1000W power
-3. Current implementation uses mock elevation data centered around Palmyra coordinates:
-   - Base latitude: 38.4064
-   - Base longitude: -86.1091
+3. Elevation data implementation:
+   - Uses NASA's SRTM 30m resolution data through OpenTopography API
+   - Automatic downloading and caching of elevation tiles
+   - Efficient data storage in system's temp directory
+   - Handles edge cases and missing data gracefully
 
 ### Development Priorities
 1. Coverage Calculation Refinements:
-   - Incorporate terrain effects on signal propagation
-   - Add line-of-sight analysis using elevation data
+   - Enhance line-of-sight analysis using real elevation data
+   - Add terrain profile visualization
    - Consider atmospheric effects and weather conditions
    - Implement frequency-specific propagation models
    - Add support for different antenna types and patterns
 
-2. Elevation Data Integration:
-   - Replace mock elevation data with real terrain data
-   - Implement efficient elevation data caching
-   - Add terrain profile visualization
-   - Consider using SRTM or similar elevation data sources
-
-3. Visualization Enhancements:
-   - Add coverage strength heat maps
+2. Visualization Enhancements:
+   - Add coverage strength heat maps with terrain consideration
    - Implement terrain profile views
    - Add support for different map providers
    - Include coverage overlap analysis visualization
    - Add export options for coverage maps
 
-4. Data Management:
-   - Implement proper elevation data storage
+3. Data Management:
+   - Optimize elevation data caching
    - Add support for batch antenna processing
    - Create data validation and cleaning tools
    - Add export/import functionality for antenna configurations
 
-### Code Style Guidelines
-1. Follow PEP 8 standards (black formatter is configured)
-2. Use type hints for all function parameters and returns
-3. Maintain modular structure as established
-4. Keep computation-heavy functions separate from visualization
-5. Document all public functions and classes
-
-### Important Technical Details
-1. Coverage Calculation:
-   ```python
-   CIRCUMFERENCE_MILES = 8
-   BASE_RADIUS_MILES = CIRCUMFERENCE_MILES / (2 * math.pi)  # ≈ 1.27 miles
-   BASE_RADIUS_KM = BASE_RADIUS_MILES * 1.60934  # ≈ 2.05 km
-   height_factor = math.sqrt(antenna.height / 30)
-   power_factor = math.sqrt(antenna.power / 1000)
-   ```
-
-2. Elevation Data Structure:
-   - Uses a grid-based system with interpolation
-   - Current grid size: 100x100 points
-   - Elevation range: ~200m base with ±50m variation
-
-3. Visualization System:
-   - Uses GeoPandas for geographic data handling
-   - Matplotlib for plotting
-   - OpenStreetMap for base maps
-   - Coverage circles use Shapely for geometry
-
-### Testing Requirements
-1. Add unit tests for:
-   - Coverage calculations
-   - Elevation data handling
-   - Antenna parameter validation
-   - Data import/export functions
-2. Include integration tests for:
-   - End-to-end coverage analysis
-   - Map generation
-   - Data processing workflows
-
-### Known Limitations
-1. Current elevation data is simulated
-2. Coverage calculation is simplified
-3. No consideration of obstacles
-4. Weather effects not implemented
-5. Limited antenna pattern support
-
-### Future Integration Points
-1. Real elevation data services
-2. Weather data APIs
-3. Antenna pattern databases
-4. Coverage validation tools
-5. Report generation system
-
-### Performance Considerations
-1. Cache elevation data for frequently accessed regions
-2. Optimize coverage calculations for batch processing
-3. Consider using numpy for intensive calculations
-4. Implement proper data structure for spatial queries
-5. Monitor memory usage with large datasets
-
-Remember to maintain backward compatibility when implementing new features and document any breaking changes appropriately.
-
 ## License
-[Add appropriate license information]
+MIT License
 
 ## Contact
-[Add contact information]
+[Raymond Thurman](mailto:raymondthurman5@gmail.com)

@@ -26,9 +26,7 @@ class Antenna:
         logger.debug(f"Validating antenna parameters for {self.name}")
 
         if not -180 <= self.longitude <= 180:
-            msg = (
-                f"Longitude must be between -180 and 180 degrees, got {self.longitude}"
-            )
+            msg = f"Longitude must be between -180 and 180 degrees, got {self.longitude}"
             logger.error(msg)
             raise ValueError(msg)
 

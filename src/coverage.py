@@ -17,17 +17,13 @@ def calculate_free_space_path_loss(distance: float, frequency: float) -> float:
     Returns:
         Path loss in dB
     """
-    logger.debug(
-        f"Calculating FSPL for distance={distance}km, frequency={frequency}GHz"
-    )
+    logger.debug(f"Calculating FSPL for distance={distance}km, frequency={frequency}GHz")
     path_loss = 20 * math.log10(distance) + 20 * math.log10(frequency) + 92.45
     logger.debug(f"Calculated path loss: {path_loss:.2f}dB")
     return path_loss
 
 
-def calculate_fresnel_zone_radius(
-    distance: float, frequency: float, n: int = 1
-) -> float:
+def calculate_fresnel_zone_radius(distance: float, frequency: float, n: int = 1) -> float:
     """
     Calculate the nth Fresnel zone radius at a given point.
 
@@ -72,9 +68,7 @@ def calculate_directional_factor(antenna: Antenna) -> float:
     return factor
 
 
-def estimate_coverage_radius(
-    antenna: Antenna, min_signal_strength: float = -80
-) -> float:
+def estimate_coverage_radius(antenna: Antenna, min_signal_strength: float = -80) -> float:
     """
     Estimate the maximum coverage radius for an antenna.
     Currently calibrated to match real-world observations of ~1.27 mile radius
@@ -111,12 +105,8 @@ def estimate_coverage_radius(
     adjusted_radius = BASE_RADIUS_KM * height_factor * power_factor * directional_factor
 
     # For point-to-point antennas (very narrow beam width), extend the range
-    if (
-        antenna.beam_width is not None and antenna.beam_width <= 5
-    ):  # Point-to-point threshold
-        logger.info(
-            f"Antenna {antenna.name} is point-to-point, extending range by 1.5x"
-        )
+    if antenna.beam_width is not None and antenna.beam_width <= 5:  # Point-to-point threshold
+        logger.info(f"Antenna {antenna.name} is point-to-point, extending range by 1.5x")
         adjusted_radius *= 1.25  # More realistic range for point-to-point
 
     logger.info(f"Final coverage radius for {antenna.name}: {adjusted_radius:.2f}km")

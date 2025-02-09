@@ -24,9 +24,7 @@ def create_coverage_polygon(ant: Antenna, radius_km: float) -> Polygon:
     Returns:
         Shapely Polygon representing the coverage area
     """
-    logger.debug(
-        f"Creating coverage polygon for antenna {ant.name} with radius {radius_km:.2f}km"
-    )
+    logger.debug(f"Creating coverage polygon for antenna {ant.name} with radius {radius_km:.2f}km")
 
     # Convert radius from km to degrees (approximate)
     # At the equator, 1 degree is approximately 111 km
@@ -34,9 +32,7 @@ def create_coverage_polygon(ant: Antenna, radius_km: float) -> Polygon:
 
     if ant.beam_width is None or ant.azimuth is None:
         # Omnidirectional antenna - create a circle
-        logger.debug(
-            f"Creating circular coverage for omnidirectional antenna {ant.name}"
-        )
+        logger.debug(f"Creating circular coverage for omnidirectional antenna {ant.name}")
         circle = Point(ant.longitude, ant.latitude).buffer(radius_deg)
         return circle
 
@@ -167,9 +163,7 @@ def plot_coverage_map(
         coverage_areas.append(coverage)
 
     # Create GeoDataFrame for antenna points
-    antenna_gdf = gpd.GeoDataFrame(
-        {"name": names, "geometry": points}, crs="EPSG:4326"  # WGS84
-    )
+    antenna_gdf = gpd.GeoDataFrame({"name": names, "geometry": points}, crs="EPSG:4326")  # WGS84
 
     if unified_view:
         logger.debug("Creating unified coverage area")
@@ -210,9 +204,7 @@ def plot_coverage_map(
         ax.set_ylim(bounds[1] - 1000, bounds[3] + 1000)
 
         # Add the background map
-        ctx.add_basemap(
-            ax, source=ctx.providers.OpenStreetMap.Mapnik, attribution=False
-        )
+        ctx.add_basemap(ax, source=ctx.providers.OpenStreetMap.Mapnik, attribution=False)
 
     # Add labels for antennas
     logger.debug("Adding antenna labels")

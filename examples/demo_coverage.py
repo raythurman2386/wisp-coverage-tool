@@ -133,9 +133,7 @@ def analyze_coverage(antennas, elevation_data):
         logger.info(f"Location: ({antenna.latitude:.4f}, {antenna.longitude:.4f})")
         logger.info(f"Height above ground: {antenna.height}m")
         logger.info(f"Average terrain elevation: {avg_elevation:.1f}m")
-        logger.info(
-            f"Total height above sea level: {antenna.height + avg_elevation:.1f}m"
-        )
+        logger.info(f"Total height above sea level: {antenna.height + avg_elevation:.1f}m")
         logger.info(f"Estimated coverage radius: {coverage_radius:.2f}km")
 
 
@@ -169,12 +167,8 @@ def main():
 
     logger.info("\nDemo completed successfully!")
     logger.info("Coverage map has been saved to 'output/coverage_map.png'")
-    logger.info(
-        "Coverage area GeoJSON has been exported to 'output/coverage_area.geojson'"
-    )
-    logger.info(
-        "The GeoJSON file can be imported into mapping tools like QGIS, Mapbox, or Leaflet"
-    )
+    logger.info("Coverage area GeoJSON has been exported to 'output/coverage_area.geojson'")
+    logger.info("The GeoJSON file can be imported into mapping tools like QGIS, Mapbox, or Leaflet")
 
 
 if __name__ == "__main__":
