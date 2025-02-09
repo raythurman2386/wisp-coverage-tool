@@ -4,8 +4,10 @@ import contextily as ctx
 import geopandas as gpd
 from shapely.geometry import Point, Polygon
 from shapely.ops import unary_union
+from shapely.validation import make_valid
 import numpy as np
 import math
+from tqdm import tqdm
 
 from src.antenna import Antenna
 from src.coverage import estimate_coverage_radius
@@ -31,8 +33,50 @@ def create_coverage_polygon(
     Returns:
         Shapely Polygon representing the coverage area
     """
-    logger.debug(f"Creating coverage polygon for antenna {ant.name} with radius {radius_km:.2f}km")
-
+    logger.debug(f"Creating coverage polygon for {ant.name} with radius {radius_km}km")
+    
+    # For backhaul antennas, create a narrow beam pattern
+    is_backhaul = "backhaul" in ant.name.lower()
+    
+    # Calculate the center point
+    center = (ant.longitude, ant.latitude)
+    points = []
+    
+    if is_backhaul:
+        # Use antenna's azimuth and beam width to create a narrow beam pattern
+        azimuth = ant.azimuth if ant.azimuth is not None else 0
+        beam_width = ant.beam_width if ant.beam_width is not None else 10  # Default 10° beam width
+        
+        # Create points for a narrow beam
+        # Start with the center point
+        points.append(center)
+        
+        # Calculate angles for the beam edges
+        left_angle = (azimuth - beam_width/2) % 360
+        right_angle = (azimuth + beam_width/2) % 360
+        
+        # Add points along the beam edges
+        distances = [radius_km * d for d in [0.25, 0.5, 0.75, 1.0]]  # Multiple points along each edge
+        for distance in distances:
+            # Left edge point
+            dx = (distance / 111.0) * math.cos(math.radians(left_angle)) / math.cos(math.radians(ant.latitude))
+            dy = (distance / 111.0) * math.sin(math.radians(left_angle))
+            points.append((center[0] + dx, center[1] + dy))
+            
+            # Right edge point
+            dx = (distance / 111.0) * math.cos(math.radians(right_angle)) / math.cos(math.radians(ant.latitude))
+            dy = (distance / 111.0) * math.sin(math.radians(right_angle))
+            points.append((center[0] + dx, center[1] + dy))
+        
+        # Create and return the beam polygon
+        try:
+            return Polygon(points)
+        except Exception as e:
+            logger.warning(f"Failed to create backhaul beam polygon for {ant.name}: {str(e)}")
+            # Create a minimal directional indicator
+            return Point(center).buffer(0.2/111.0)  # 200m radius minimum
+    
+    # For non-backhaul antennas, use the original coverage calculation
     # Get antenna base elevation
     if elevation_data:
         ant_elevation = elevation_data.get_elevation(ant.latitude, ant.longitude)
@@ -204,31 +248,49 @@ def plot_coverage_map(
     coverage_areas = []
     names = []
 
-    for ant in antennas:
-        logger.debug(f"Processing antenna {ant.name}")
-        # Create point for antenna location
-        point = Point(ant.longitude, ant.latitude)
-        points.append(point)
+    logger.debug("Calculating coverage areas for each antenna")
+    for ant in tqdm(antennas, desc="Processing antennas"):
         names.append(ant.name)
-
-        # Create coverage area with terrain consideration
-        radius_km = estimate_coverage_radius(ant, elevation_data)
-        coverage = create_coverage_polygon(ant, radius_km, elevation_data)
-        coverage_areas.append(coverage)
+        points.append(Point(ant.longitude, ant.latitude))
+        
+        coverage = create_coverage_polygon(ant, estimate_coverage_radius(ant), elevation_data)
+        
+        # Validate and fix the coverage polygon if needed
+        if not coverage.is_valid:
+            logger.warning(f"Invalid coverage polygon for antenna {ant.name}. Attempting to fix...")
+            coverage = make_valid(coverage)
+            
+        if coverage.is_valid:
+            # Add a small buffer to handle precision issues (1e-8 degrees ≈ 1mm)
+            coverage = coverage.buffer(1e-8)
+            coverage_areas.append(coverage)
+        else:
+            logger.error(f"Could not create valid coverage polygon for antenna {ant.name}")
+            continue
 
     # Create GeoDataFrame for antenna points
     antenna_gdf = gpd.GeoDataFrame({"name": names, "geometry": points}, crs="EPSG:4326")  # WGS84
 
-    if unified_view:
+    if unified_view and coverage_areas:
         logger.debug("Creating unified coverage area")
-        # Create unified coverage area
-        unified_coverage = unary_union(coverage_areas)
-        coverage_gdf = gpd.GeoDataFrame(
-            {"name": ["Total Coverage Area"]},
-            geometry=[unified_coverage],
-            crs="EPSG:4326",  # WGS84
-        )
-    else:
+        try:
+            # Create unified coverage area with error handling
+            unified_coverage = unary_union(coverage_areas)
+            if not unified_coverage.is_valid:
+                logger.warning("Invalid unified coverage. Attempting to fix...")
+                unified_coverage = make_valid(unified_coverage)
+            
+            coverage_gdf = gpd.GeoDataFrame(
+                {"name": ["Total Coverage Area"]},
+                geometry=[unified_coverage],
+                crs="EPSG:4326",  # WGS84
+            )
+        except Exception as e:
+            logger.error(f"Failed to create unified coverage: {str(e)}")
+            # Fall back to individual coverage areas
+            unified_view = False
+
+    if not unified_view:
         logger.debug("Using individual coverage areas")
         # Use individual coverage areas
         coverage_gdf = gpd.GeoDataFrame(

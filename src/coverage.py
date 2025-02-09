@@ -58,16 +58,26 @@ def calculate_directional_factor(antenna: Antenna) -> float:
     Returns:
         Directional factor (1.0 means omnidirectional, >1.0 means more focused)
     """
-    if antenna.beam_width is None:
-        logger.debug(f"Antenna {antenna.name} is omnidirectional, using factor=1.0")
-        return 1.0
-
-    # The narrower the beam, the stronger the signal in that direction
-    factor = math.sqrt(360 / antenna.beam_width)
-    logger.debug(
-        f"Calculated directional factor for {antenna.name}: {factor:.2f} (beam width: {antenna.beam_width}°)"
-    )
-    return factor
+    # For backhaul antennas, return a much higher factor to represent their focused beam
+    if "backhaul" in antenna.name.lower():
+        logger.debug(f"Backhaul antenna detected: {antenna.name}")
+        # Use beam width to calculate a more accurate directional factor
+        # Narrower beam width means more focused power
+        if antenna.beam_width:
+            # For a 10-degree beam width, this gives factor of about 36
+            # For a 5-degree beam width, this gives factor of about 72
+            factor = 360 / antenna.beam_width if antenna.beam_width > 0 else 72
+            logger.debug(f"Backhaul directional factor: {factor:.2f} (beam width: {antenna.beam_width}°)")
+            return factor
+        return 72.0  # Default factor for backhaul if no beam width specified
+    
+    # For standard antennas, use the original calculation
+    if antenna.beam_width and antenna.beam_width < 360:
+        # More focused beam means higher factor
+        factor = 2.0 * (360 / antenna.beam_width) ** 0.5
+        logger.debug(f"Standard antenna directional factor: {factor:.2f} (beam width: {antenna.beam_width}°)")
+        return factor
+    return 1.0  # Omnidirectional
 
 
 def check_line_of_sight(
@@ -191,6 +201,25 @@ def estimate_coverage_radius(
     """
     logger.info(f"Estimating coverage radius for antenna {antenna.name}")
 
+    # Special handling for backhaul antennas
+    is_backhaul = "backhaul" in antenna.name.lower()
+    
+    if is_backhaul:
+        # For backhaul, use free space path loss calculation to estimate range
+        # Typically backhaul links can maintain connection at lower signal strengths
+        backhaul_min_signal = -90  # dBm, backhaul radios can usually work with weaker signals
+        
+        # Calculate maximum theoretical range based on FSPL formula
+        # FSPL = 20log10(d) + 20log10(f) + 92.45
+        # Solving for d: d = 10^((EIRP - min_signal - 92.45 - 20log10(f))/20)
+        eirp = antenna.power + 10 * math.log10(calculate_directional_factor(antenna))  # Effective radiated power
+        max_path_loss = eirp - backhaul_min_signal
+        theoretical_range = 10 ** ((max_path_loss - 92.45 - 20 * math.log10(antenna.frequency)) / 20)
+        
+        logger.debug(f"Backhaul theoretical range for {antenna.name}: {theoretical_range:.2f}km")
+        return min(theoretical_range, 50.0)  # Cap at 50km for practical purposes
+    
+    # For non-backhaul antennas, use the original calculation
     # Calculate base radius from 8-mile circumference
     MILES_TO_KM = 1.60934
     CIRCUMFERENCE_MILES = 8
