@@ -1,6 +1,16 @@
 from typing import Dict, Tuple, Optional, List
 import numpy as np
 from dataclasses import dataclass
+import os
+import rasterio
+import tempfile
+import requests
+import math
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 
 @dataclass
@@ -14,49 +24,157 @@ class ElevationPoint:
 
 class ElevationData:
     """
-    Class for managing elevation data and terrain analysis.
-    Currently uses dummy data - will be replaced with real elevation service.
+    Class for managing elevation data and terrain analysis using SRTM data.
+    Uses NASA's Shuttle Radar Topography Mission (SRTM) 30m resolution data
+    through OpenTopography API.
     """
 
     def __init__(self):
-        """Initialize with dummy elevation data around Palmyra, Indiana."""
+        """Initialize the elevation data manager with SRTM data cache."""
         self._elevation_cache: Dict[Tuple[float, float], float] = {}
-        # Center point near Palmyra, IN
-        self._base_lat = 38.4064
-        self._base_lon = -86.1091
-        # Generate some dummy terrain with rolling hills
-        self._generate_dummy_terrain()
+        self._data_dir = os.path.join(tempfile.gettempdir(), "srtm_cache")
+        os.makedirs(self._data_dir, exist_ok=True)
+        self._current_bounds = None
+        self._current_dataset = None
 
-    def _generate_dummy_terrain(self, grid_size: int = 100):
+        # Get API key from environment
+        self._api_key = os.getenv("OPEN_TOPO")
+        if not self._api_key:
+            raise ValueError(
+                "OpenTopography API key not found. Please set OPEN_TOPO in .env file"
+            )
+
+    def _get_srtm_tile_name(self, latitude: float, longitude: float) -> str:
         """
-        Generate dummy terrain data with rolling hills.
+        Get the SRTM tile name for given coordinates.
 
         Args:
-            grid_size: Size of the grid for dummy data generation
+            latitude: Latitude in degrees
+            longitude: Longitude in degrees
+
+        Returns:
+            SRTM tile name (e.g., 'N37W086')
         """
-        # Create a grid of points
-        x = np.linspace(-0.1, 0.1, grid_size)
-        y = np.linspace(-0.1, 0.1, grid_size)
-        X, Y = np.meshgrid(x, y)
+        lat_base = math.floor(latitude)
+        lon_base = math.floor(longitude)
 
-        # Generate some rolling hills using sine waves
-        base_elevation = 200  # base elevation in meters
-        hills = (
-            np.sin(5 * X) * np.cos(5 * Y) * 20  # rolling hills
-            + np.sin(2 * X) * np.sin(2 * Y) * 30  # larger features
-            + base_elevation  # base elevation
-        )
+        if lat_base >= 0:
+            lat_str = f"N{lat_base:02d}"
+        else:
+            lat_str = f"S{abs(lat_base):02d}"
 
-        # Store in cache
-        for i in range(grid_size):
-            for j in range(grid_size):
-                lat = self._base_lat + y[i]
-                lon = self._base_lon + x[j]
-                self._elevation_cache[(lat, lon)] = float(hills[i, j])
+        if lon_base >= 0:
+            lon_str = f"E{lon_base:03d}"
+        else:
+            lon_str = f"W{abs(lon_base):03d}"
+
+        return f"{lat_str}{lon_str}"
+
+    def _download_srtm_tile(self, latitude: float, longitude: float) -> str:
+        """
+        Download SRTM tile if not already in cache using OpenTopography API.
+
+        Args:
+            latitude: Latitude in degrees
+            longitude: Longitude in degrees
+
+        Returns:
+            Path to the downloaded file
+        """
+        tile_name = self._get_srtm_tile_name(latitude, longitude)
+        output_file = os.path.join(self._data_dir, f"{tile_name}.tif")
+
+        if not os.path.exists(output_file):
+            try:
+                print(f"Downloading elevation data for {tile_name}...")
+
+                # Calculate bounds
+                lat_base = math.floor(latitude)
+                lon_base = math.floor(longitude)
+
+                # OpenTopography API URL
+                url = (
+                    "https://portal.opentopography.org/API/globaldem"
+                    f"?demtype=SRTMGL1"
+                    f"&south={lat_base}"
+                    f"&north={lat_base + 1}"
+                    f"&west={lon_base}"
+                    f"&east={lon_base + 1}"
+                    f"&outputFormat=GTiff"
+                    f"&API_Key={self._api_key}"
+                )
+
+                response = requests.get(url, stream=True)
+                response.raise_for_status()
+
+                # Save to temporary file first
+                temp_file = output_file + ".tmp"
+                with open(temp_file, "wb") as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+
+                # If download successful, rename to final filename
+                os.rename(temp_file, output_file)
+                print(f"Successfully downloaded elevation data for {tile_name}")
+
+            except requests.exceptions.RequestException as e:
+                print(f"Failed to download elevation data: {e}")
+                return None
+            except Exception as e:
+                print(f"Error downloading elevation data: {e}")
+                return None
+
+        return output_file
+
+    def _ensure_data_available(self, latitude: float, longitude: float):
+        """
+        Ensure SRTM data is available for the given coordinates.
+        Downloads data if necessary.
+
+        Args:
+            latitude: Latitude in degrees
+            longitude: Longitude in degrees
+        """
+        # Check if we already have data for these coordinates
+        if self._current_bounds is not None:
+            min_lat, max_lat, min_lon, max_lon = self._current_bounds
+            if min_lat <= latitude < max_lat and min_lon <= longitude < max_lon:
+                return
+
+        # Download the tile if necessary
+        tile_path = self._download_srtm_tile(latitude, longitude)
+
+        if tile_path is None or not os.path.exists(tile_path):
+            # If download failed, set current dataset to None
+            self._current_dataset = None
+            self._current_bounds = None
+            return
+
+        # Load the dataset
+        if self._current_dataset is not None:
+            self._current_dataset.close()
+
+        try:
+            # Open with rasterio
+            self._current_dataset = rasterio.open(tile_path)
+
+            # Update bounds
+            bounds = self._current_dataset.bounds
+            self._current_bounds = (
+                bounds.bottom,  # min_lat
+                bounds.top,  # max_lat
+                bounds.left,  # min_lon
+                bounds.right,  # max_lon
+            )
+
+        except Exception as e:
+            print(f"Error opening elevation data: {e}")
+            self._current_dataset = None
+            self._current_bounds = None
 
     def get_elevation(self, latitude: float, longitude: float) -> float:
         """
-        Get elevation for a specific coordinate.
+        Get elevation for a specific coordinate using SRTM data.
 
         Args:
             latitude: Latitude in degrees
@@ -65,37 +183,35 @@ class ElevationData:
         Returns:
             Elevation in meters above sea level
         """
-        # Check if point is in cache
-        if (latitude, longitude) in self._elevation_cache:
-            return self._elevation_cache[(latitude, longitude)]
+        # Check cache first
+        cache_key = (latitude, longitude)
+        if cache_key in self._elevation_cache:
+            return self._elevation_cache[cache_key]
 
-        # If not in cache, interpolate from nearby points
-        return self._interpolate_elevation(latitude, longitude)
+        # Ensure we have data for these coordinates
+        self._ensure_data_available(latitude, longitude)
 
-    def _interpolate_elevation(self, latitude: float, longitude: float) -> float:
-        """
-        Interpolate elevation from nearby cached points.
+        # If we don't have a dataset (download failed), return 0
+        if self._current_dataset is None:
+            return 0
 
-        Args:
-            latitude: Latitude in degrees
-            longitude: Longitude in degrees
+        try:
+            # Convert coordinates to dataset coordinates
+            row, col = self._current_dataset.index(longitude, latitude)
+            elevation_data = self._current_dataset.read(1)
+            elevation_value = float(elevation_data[row, col])
 
-        Returns:
-            Interpolated elevation in meters
-        """
-        # Find nearest cached point
-        nearest_lat = (
-            self._base_lat + round((latitude - self._base_lat) / 0.002) * 0.002
-        )
-        nearest_lon = (
-            self._base_lon + round((longitude - self._base_lon) / 0.002) * 0.002
-        )
+            # Handle no data value
+            if elevation_value < -1000:  # Common no-data values
+                elevation_value = 0
 
-        # Return elevation of nearest point
-        return self._elevation_cache.get(
-            (nearest_lat, nearest_lon),
-            200.0,  # default elevation if point is outside our dummy data range
-        )
+        except (IndexError, ValueError) as e:
+            print(f"Error reading elevation data: {e}")
+            elevation_value = 0
+
+        # Cache the result
+        self._elevation_cache[cache_key] = elevation_value
+        return elevation_value
 
     def get_elevation_profile(
         self,

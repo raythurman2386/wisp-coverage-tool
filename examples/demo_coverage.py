@@ -85,7 +85,7 @@ mock_antenna_points = [
         "frequency": 5.8,
         "beam_width": 5,
         "azimuth": 0,  # Pointing North to hub
-    }
+    },
 ]
 
 
@@ -93,7 +93,7 @@ def create_antennas():
     """Create antenna objects from mock data."""
     logger.info("Creating antenna objects from mock data")
     antennas = []
-    
+
     for point in mock_antenna_points:
         logger.debug(f"Creating antenna: {point['name']}")
         antenna = Antenna(
@@ -107,7 +107,7 @@ def create_antennas():
             azimuth=point.get("azimuth"),  # Optional
         )
         antennas.append(antenna)
-    
+
     logger.info(f"Created {len(antennas)} antenna objects")
     return antennas
 
@@ -115,10 +115,10 @@ def create_antennas():
 def analyze_coverage(antennas, elevation_data):
     """Analyze coverage for each antenna."""
     logger.info("Analyzing coverage for all antennas")
-    
+
     for antenna in antennas:
         logger.debug(f"Analyzing antenna: {antenna.name}")
-        
+
         # Get coverage radius
         coverage_radius = estimate_coverage_radius(antenna)
 
@@ -133,13 +133,15 @@ def analyze_coverage(antennas, elevation_data):
         logger.info(f"Location: ({antenna.latitude:.4f}, {antenna.longitude:.4f})")
         logger.info(f"Height above ground: {antenna.height}m")
         logger.info(f"Average terrain elevation: {avg_elevation:.1f}m")
-        logger.info(f"Total height above sea level: {antenna.height + avg_elevation:.1f}m")
+        logger.info(
+            f"Total height above sea level: {antenna.height + avg_elevation:.1f}m"
+        )
         logger.info(f"Estimated coverage radius: {coverage_radius:.2f}km")
 
 
 def main():
     logger.info("Starting WISP Coverage Tool Demo")
-    
+
     # Create antenna objects
     antennas = create_antennas()
 
@@ -162,13 +164,17 @@ def main():
         background_map=True,
         save_path=output_dir / "coverage_map.png",
         export_geojson=output_dir / "coverage_area.geojson",
-        unified_view=True
+        unified_view=True,
     )
 
     logger.info("\nDemo completed successfully!")
     logger.info("Coverage map has been saved to 'output/coverage_map.png'")
-    logger.info("Coverage area GeoJSON has been exported to 'output/coverage_area.geojson'")
-    logger.info("The GeoJSON file can be imported into mapping tools like QGIS, Mapbox, or Leaflet")
+    logger.info(
+        "Coverage area GeoJSON has been exported to 'output/coverage_area.geojson'"
+    )
+    logger.info(
+        "The GeoJSON file can be imported into mapping tools like QGIS, Mapbox, or Leaflet"
+    )
 
 
 if __name__ == "__main__":
