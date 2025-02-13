@@ -175,39 +175,67 @@ plot_coverage_map([antenna], elevation_data=elevation_data)
 
 ## Notes for LLM Development Continuation
 
-### Project Context
-1. This tool is designed for WISP coverage analysis in Palmyra, Indiana
-2. Coverage calculations are calibrated to real-world observations:
-   - Coverage area: 8-mile circumference
-   - Base radius: 4 miles
-   - Adjustments made for antenna height and power
-   - Reference configuration: 30m height, 1000W power
-3. Elevation data implementation:
-   - Uses NASA's SRTM 30m resolution data through OpenTopography API
-   - Automatic downloading and caching of elevation tiles
-   - Efficient data storage in system's temp directory
-   - Handles edge cases and missing data gracefully
+### Recent Improvements
 
-### Development Priorities
-1. Coverage Calculation Refinements:
-   - Enhance line-of-sight analysis using real elevation data
+1. **Coverage Calculation Enhancements**
+   - Implemented ITU-R P.526 model for terrain diffraction loss
+   - Improved line-of-sight calculations with Fresnel zone consideration
+   - Added specialized handling for different antenna types:
+     - Backhaul antennas (up to 50km range)
+     - Sector antennas (up to 15km range)
+     - Standard antennas (up to 8km range)
+   - Implemented minimum radius safeguards (500m)
+
+2. **Visualization Improvements**
+   - Added support for both backhaul and regular antenna visualization
+   - Enhanced coverage polygon creation with terrain consideration
+   - Improved beam pattern visualization for directional antennas
+   - Added validation for coverage radius calculations
+
+3. **Code Organization**
+   - Cleaned up and optimized core functions in coverage.py
+   - Enhanced error handling and logging
+   - Improved type hints and documentation
+   - Separated concerns between coverage calculation and visualization
+
+### Future Development Plans
+
+1. **Elevation Data Optimization**
+   - Implement raster-based elevation data storage using GeoTIFF format
+   - Create a caching system for frequently accessed elevation data
+   - Add support for different resolution options (30m/90m)
+   - Implement efficient tile-based data management
+
+2. **Performance Enhancements**
+   - Optimize terrain analysis algorithms
+   - Implement parallel processing for coverage calculations
+   - Add caching for frequently accessed calculations
+   - Optimize memory usage for large coverage areas
+
+3. **Feature Additions**
+   - Add support for multiple frequency bands
+   - Implement rain fade calculations
+   - Add vegetation impact analysis
+   - Create coverage overlap analysis tools
+   - Add network capacity planning features
+
+4. **User Interface**
+   - Add interactive coverage adjustment tools
+   - Implement coverage comparison views
    - Add terrain profile visualization
-   - Consider atmospheric effects and weather conditions
-   - Implement frequency-specific propagation models
-   - Add support for different antenna types and patterns
+   - Create coverage report generation
 
-2. Visualization Enhancements:
-   - Add coverage strength heat maps with terrain consideration
-   - Implement terrain profile views
-   - Add support for different map providers
-   - Include coverage overlap analysis visualization
-   - Add export options for coverage maps
+5. **Documentation and Testing**
+   - Add comprehensive API documentation
+   - Create usage examples and tutorials
+   - Implement automated testing suite
+   - Add performance benchmarking tools
 
-3. Data Management:
-   - Optimize elevation data caching
-   - Add support for batch antenna processing
-   - Create data validation and cleaning tools
-   - Add export/import functionality for antenna configurations
+### Priority Tasks
+1. Implement elevation data raster storage system
+2. Add automated testing for core functions
+3. Optimize coverage calculation performance
+4. Enhance visualization options for different antenna types
 
 ## License
 MIT License

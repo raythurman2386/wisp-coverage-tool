@@ -10,15 +10,17 @@ import math
 from tqdm import tqdm
 
 from src.antenna import Antenna
-from src.coverage import estimate_coverage_radius
 from src.elevation import ElevationData
+from src.coverage import check_line_of_sight, estimate_coverage_radius
 from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 
 
 def create_coverage_polygon(
-    ant: Antenna, radius_km: float, elevation_data: Optional[ElevationData] = None
+    ant: Antenna,
+    radius_km: float,
+    elevation_data: Optional[ElevationData] = None
 ) -> Polygon:
     """
     Create a polygon representing the coverage area of an antenna, considering terrain.
@@ -32,164 +34,156 @@ def create_coverage_polygon(
         Shapely Polygon representing the coverage area
     """
     logger.debug(f"Creating coverage polygon for {ant.name} with radius {radius_km}km")
+    
+    # Ensure we have a valid radius
+    if radius_km <= 0:
+        logger.warning(f"Invalid radius {radius_km}km for {ant.name}, using minimum radius")
+        radius_km = 0.5  # 500m minimum radius
+    
+    # Calculate the center point
+    center = (ant.longitude, ant.latitude)
+    
+    # Get antenna base elevation and height
+    if elevation_data:
+        base_elevation = elevation_data.get_elevation(ant.latitude, ant.longitude)
+        if base_elevation is not None:
+            total_height = base_elevation + ant.height
+            logger.debug(f"Antenna {ant.name} base elevation: {base_elevation}m, total height: {total_height}m")
+        else:
+            total_height = ant.height
+            logger.warning(f"Could not get elevation for {ant.name}, using antenna height only")
+    else:
+        total_height = ant.height
 
     # For backhaul antennas, create a narrow beam pattern
     is_backhaul = "backhaul" in ant.name.lower()
-
-    # Calculate the center point
-    center = (ant.longitude, ant.latitude)
-    points = []
-
+    
     if is_backhaul:
         # Use antenna's azimuth and beam width to create a narrow beam pattern
         azimuth = ant.azimuth if ant.azimuth is not None else 0
         beam_width = ant.beam_width if ant.beam_width is not None else 10  # Default 10° beam width
-
-        # Create points for a narrow beam
-        # Start with the center point
-        points.append(center)
-
+        
+        points = []
+        points.append(center)  # Start with center point
+        
         # Calculate angles for the beam edges
-        left_angle = (azimuth - beam_width / 2) % 360
-        right_angle = (azimuth + beam_width / 2) % 360
-
-        # Add points along the beam edges
-        distances = [
-            radius_km * d for d in [0.25, 0.5, 0.75, 1.0]
-        ]  # Multiple points along each edge
-        for distance in distances:
-            # Left edge point
-            dx = (
-                (distance / 111.0)
-                * math.cos(math.radians(left_angle))
-                / math.cos(math.radians(ant.latitude))
+        left_angle = (azimuth - beam_width/2) % 360
+        right_angle = (azimuth + beam_width/2) % 360
+        
+        # Convert radius to degrees (approximate)
+        radius_deg = radius_km / 111.0
+        
+        # Add points along the arc at maximum distance
+        num_arc_points = 5
+        angles = np.linspace(left_angle, right_angle, num_arc_points)
+        
+        for angle in angles:
+            angle_rad = math.radians(angle)
+            
+            # Calculate point coordinates
+            dx = radius_deg * math.cos(angle_rad) / math.cos(math.radians(ant.latitude))
+            dy = radius_deg * math.sin(angle_rad)
+            point = (center[0] + dx, center[1] + dy)
+            
+            # Check terrain if available
+            if elevation_data:
+                target_lat = ant.latitude + dy
+                target_lon = ant.longitude + dx
+                has_los, _ = check_line_of_sight(
+                    ant, target_lat, target_lon, total_height,
+                    elevation_data, samples=10
+                )
+                if has_los:
+                    points.append(point)
+            else:
+                points.append(point)
+        
+        # Create and return the beam polygon if we have enough points
+        if len(points) >= 3:
+            try:
+                return Polygon(points)
+            except Exception as e:
+                logger.warning(f"Failed to create backhaul beam polygon for {ant.name}: {str(e)}")
+        
+        # Fallback to a minimal directional indicator
+        return Point(center).buffer(0.2/111.0)  # 200m radius minimum
+    
+    # For regular antennas, create a coverage area considering terrain
+    points = []
+    points.append(center)  # Start with center point
+    
+    # Calculate points around the circumference
+    num_points = 72  # Every 5 degrees
+    angles = np.linspace(0, 360, num_points, endpoint=False)
+    
+    for angle in angles:
+        angle_rad = math.radians(angle)
+        
+        # Convert to degrees for coordinate calculation
+        radius_deg = radius_km / 111.0
+        
+        # Calculate point coordinates
+        dx = radius_deg * math.cos(angle_rad) / math.cos(math.radians(ant.latitude))
+        dy = radius_deg * math.sin(angle_rad)
+        point = (center[0] + dx, center[1] + dy)
+        
+        # Check terrain if available
+        if elevation_data:
+            target_lat = ant.latitude + dy
+            target_lon = ant.longitude + dx
+            has_los, _ = check_line_of_sight(
+                ant, target_lat, target_lon, total_height,
+                elevation_data, samples=10
             )
-            dy = (distance / 111.0) * math.sin(math.radians(left_angle))
-            points.append((center[0] + dx, center[1] + dy))
-
-            # Right edge point
-            dx = (
-                (distance / 111.0)
-                * math.cos(math.radians(right_angle))
-                / math.cos(math.radians(ant.latitude))
-            )
-            dy = (distance / 111.0) * math.sin(math.radians(right_angle))
-            points.append((center[0] + dx, center[1] + dy))
-
-        # Create and return the beam polygon
+            if has_los:
+                points.append(point)
+        else:
+            points.append(point)
+    
+    # Create the coverage polygon if we have enough points
+    if len(points) >= 3:
         try:
             return Polygon(points)
         except Exception as e:
-            logger.warning(f"Failed to create backhaul beam polygon for {ant.name}: {str(e)}")
-            # Create a minimal directional indicator
-            return Point(center).buffer(0.2 / 111.0)  # 200m radius minimum
+            logger.warning(f"Failed to create polygon for {ant.name}: {str(e)}")
+    
+    # Fallback to a minimal circle
+    logger.warning(f"Not enough points to create polygon for {ant.name}, creating minimal circle")
+    return Point(center).buffer(0.5/111.0)  # 500m radius minimum
 
-    # For non-backhaul antennas, use the original coverage calculation
-    # Get antenna base elevation
-    if elevation_data:
-        ant_elevation = elevation_data.get_elevation(ant.latitude, ant.longitude)
-        ant_height = ant_elevation + ant.height
-        logger.debug(
-            f"Antenna {ant.name} base elevation: {ant_elevation}m, total height: {ant_height}m"
-        )
-    else:
-        ant_height = ant.height
 
-    # Convert radius from km to degrees (approximate)
-    # At the equator, 1 degree is approximately 111 km
-    radius_deg = radius_km / 111.0
-
-    # Sample points more densely for better terrain consideration
-    num_angles = 72  # Every 5 degrees
-    angles = np.linspace(0, 360, num_angles, endpoint=False)
+def create_simple_beam_polygon(ant: Antenna, radius_deg: float) -> Polygon:
+    """
+    Create a simple beam polygon for backhaul antennas when terrain analysis fails.
+    
+    Args:
+        ant: Antenna object
+        radius_deg: Maximum coverage radius in degrees
+        
+    Returns:
+        Shapely Polygon representing a simple beam coverage area
+    """
     points = []
-    center = (ant.longitude, ant.latitude)
-
-    # Add center point
-    points.append(center)
-
-    for angle in angles:
-        # Skip angles outside the beam width for directional antennas
-        if ant.beam_width is not None and ant.azimuth is not None:
-            angle_diff = (angle - ant.azimuth + 180) % 360 - 180
-            if abs(angle_diff) > ant.beam_width / 2:
-                continue
-
-        # Convert angle to radians
+    points.append((ant.longitude, ant.latitude))  # Center point
+    
+    # Use 3 points to create a simple triangular beam
+    beam_width = ant.beam_width if ant.beam_width else 4
+    half_beam = beam_width / 2
+    
+    # Calculate angles
+    start_angle = (ant.azimuth - half_beam) % 360
+    end_angle = (ant.azimuth + half_beam) % 360
+    
+    # Add points at the maximum radius
+    for angle in [start_angle, end_angle]:
         angle_rad = math.radians(angle)
-
-        # Sample points along this direction
-        distances = np.linspace(0.1, radius_km, 20)  # Sample 20 points along each direction
-        max_distance = 0.1  # Minimum distance
-
-        for distance in distances:
-            # Calculate test point location
-            dx = distance * math.cos(angle_rad) / 111.0
-            dy = distance * math.sin(angle_rad) / 111.0
-
-            # Adjust for latitude compression
-            dx = dx / math.cos(math.radians(ant.latitude))
-
-            test_lon = center[0] + dx
-            test_lat = center[1] + dy
-
-            if elevation_data:
-                # Get elevation profile
-                profile = elevation_data.get_elevation_profile(
-                    ant.latitude, ant.longitude, test_lat, test_lon, num_points=10
-                )
-
-                if not profile:  # Skip if we couldn't get elevation data
-                    logger.warning(
-                        f"Could not get elevation profile for {ant.name} at angle {angle}"
-                    )
-                    continue
-
-                # Get end point elevation and add receiver height
-                end_elevation = profile[-1].elevation + 5  # Assume 5m receiver height
-
-                # Check line of sight
-                has_los = True
-                for i, point in enumerate(profile[1:-1], 1):
-                    # Calculate ratio along the path
-                    ratio = i / (len(profile) - 1)
-
-                    # Calculate expected height at this point (straight line)
-                    expected_height = ant_height + (end_elevation - ant_height) * ratio
-
-                    # Calculate Fresnel zone clearance
-                    wavelength = 3e8 / (ant.frequency * 1e9)  # Convert GHz to Hz
-                    fresnel_radius = math.sqrt(wavelength * distance * 1000 / 4)  # in meters
-                    required_clearance = fresnel_radius * 0.6  # 60% of first Fresnel zone
-
-                    # Add earth curvature correction
-                    # Earth's radius is approximately 6371 km
-                    earth_curvature = (distance * 1000 * ratio) ** 2 / (2 * 6371000)
-
-                    # Check if terrain blocks the path
-                    if point.elevation > (expected_height - required_clearance - earth_curvature):
-                        has_los = False
-                        break
-
-                if not has_los:
-                    break
-
-            max_distance = distance
-
-        # Add the point at the maximum distance for this angle
-        if max_distance > 0.1:  # Only add if we found a valid distance
-            dx = (max_distance / 111.0) * math.cos(angle_rad) / math.cos(math.radians(ant.latitude))
-            dy = (max_distance / 111.0) * math.sin(angle_rad)
-            points.append((center[0] + dx, center[1] + dy))
-
-    # Need at least 3 points to create a polygon
-    if len(points) < 3:
-        logger.warning(
-            f"Not enough points to create polygon for {ant.name}, creating minimal circle"
-        )
-        return Point(center).buffer(0.1 / 111.0)  # 100m radius minimum
-
-    # Create and return the polygon
+        dx = radius_deg * math.cos(angle_rad) / math.cos(math.radians(ant.latitude))
+        dy = radius_deg * math.sin(angle_rad)
+        points.append((ant.longitude + dx, ant.latitude + dy))
+    
+    # Close the polygon
+    points.append((ant.longitude, ant.latitude))
+    
     return Polygon(points)
 
 

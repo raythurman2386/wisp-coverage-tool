@@ -19,10 +19,9 @@ def calculate_free_space_path_loss(distance: float, frequency: float) -> float:
     Returns:
         Path loss in dB
     """
-    logger.debug(f"Calculating FSPL for distance={distance}km, frequency={frequency}GHz")
-    path_loss = 20 * math.log10(distance) + 20 * math.log10(frequency) + 92.45
-    logger.debug(f"Calculated path loss: {path_loss:.2f}dB")
-    return path_loss
+    # FSPL formula: 20log10(d) + 20log10(f) + 92.45
+    # where d is in km and f is in GHz
+    return 20 * math.log10(distance) + 20 * math.log10(frequency) + 92.45
 
 
 def calculate_fresnel_zone_radius(distance: float, frequency: float, n: int = 1) -> float:
@@ -37,15 +36,15 @@ def calculate_fresnel_zone_radius(distance: float, frequency: float, n: int = 1)
     Returns:
         Radius in meters
     """
-    logger.debug(
-        f"Calculating Fresnel zone {n} radius at distance={distance}km, frequency={frequency}GHz"
-    )
-    wavelength = 0.3 / frequency  # wavelength in meters (c = 3x10^8 m/s)
-    d1 = distance * 1000  # convert to meters
-    d2 = distance * 1000  # assuming point is in the middle
-    radius = math.sqrt((n * wavelength * d1 * d2) / (d1 + d2))
-    logger.debug(f"Calculated Fresnel zone radius: {radius:.2f}m")
-    return radius
+    # Convert frequency to wavelength (c = 3x10^8 m/s)
+    wavelength = 0.3 / frequency  # wavelength in meters
+    
+    # Convert distance to meters
+    d1 = distance * 1000  # first half of the path
+    d2 = distance * 1000  # second half (assuming point is in middle)
+    
+    # Fresnel zone radius formula: r = sqrt((n * λ * d1 * d2)/(d1 + d2))
+    return math.sqrt((n * wavelength * d1 * d2) / (d1 + d2))
 
 
 def calculate_directional_factor(antenna: Antenna) -> float:
@@ -58,30 +57,23 @@ def calculate_directional_factor(antenna: Antenna) -> float:
     Returns:
         Directional factor (1.0 means omnidirectional, >1.0 means more focused)
     """
-    # For backhaul antennas, return a much higher factor to represent their focused beam
+    # For backhaul antennas, use a much higher factor
     if "backhaul" in antenna.name.lower():
-        logger.debug(f"Backhaul antenna detected: {antenna.name}")
-        # Use beam width to calculate a more accurate directional factor
-        # Narrower beam width means more focused power
         if antenna.beam_width:
-            # For a 10-degree beam width, this gives factor of about 36
-            # For a 5-degree beam width, this gives factor of about 72
+            # For narrow beams, factor increases as beam width decreases
+            # e.g., 5° beam = factor of 72, 10° beam = factor of 36
             factor = 360 / antenna.beam_width if antenna.beam_width > 0 else 72
-            logger.debug(
-                f"Backhaul directional factor: {factor:.2f} (beam width: {antenna.beam_width}°)"
-            )
             return factor
         return 72.0  # Default factor for backhaul if no beam width specified
-
-    # For standard antennas, use the original calculation
+    
+    # For standard antennas, calculate based on beam width
     if antenna.beam_width and antenna.beam_width < 360:
         # More focused beam means higher factor
+        # Square root relationship provides reasonable scaling
         factor = 2.0 * (360 / antenna.beam_width) ** 0.5
-        logger.debug(
-            f"Standard antenna directional factor: {factor:.2f} (beam width: {antenna.beam_width}°)"
-        )
         return factor
-    return 1.0  # Omnidirectional
+    
+    return 1.0  # Default for omnidirectional antennas
 
 
 def check_line_of_sight(
@@ -90,11 +82,11 @@ def check_line_of_sight(
     target_lon: float,
     target_height: float,
     elevation_data: ElevationData,
-    samples: int = 100,
+    samples: int = 100
 ) -> Tuple[bool, float]:
     """
     Check if there is a clear line of sight between antenna and target point.
-
+    
     Args:
         antenna: Source antenna
         target_lat: Target latitude
@@ -102,96 +94,96 @@ def check_line_of_sight(
         target_height: Height of target point above ground in meters
         elevation_data: ElevationData object for terrain information
         samples: Number of points to check along the path
-
+    
     Returns:
         Tuple of (has_line_of_sight, clearance_ratio)
         clearance_ratio is the minimum ratio of actual clearance to required clearance
     """
-    # Get elevation points along the path
-    points = elevation_data.get_elevation_profile(
-        antenna.latitude, antenna.longitude, target_lat, target_lon, samples
+    # Get elevation profile between points
+    profile = elevation_data.get_elevation_profile(
+        antenna.latitude, antenna.longitude,
+        target_lat, target_lon,
+        num_points=samples
     )
-
-    # Calculate distances from antenna to each point
-    distances = []
-    total_distance = 0
-    prev_point = points[0]
-
-    for point in points[1:]:
-        dist = (
-            math.sqrt(
-                (point.latitude - prev_point.latitude) ** 2
-                + (point.longitude - prev_point.longitude) ** 2
-            )
-            * 111
-        )  # Convert degrees to km (approximate)
-        total_distance += dist
-        distances.append(total_distance)
-        prev_point = point
-
-    # Calculate the line of sight path
-    antenna_height = antenna.height + points[0].elevation
-    target_height = target_height + points[-1].elevation
-
-    # Linear interpolation of heights along the path
-    line_of_sight = np.linspace(antenna_height, target_height, len(points))
-
-    # Calculate Fresnel zone clearance required at each point
-    clearances = []
-    min_clearance_ratio = float("inf")
-
-    for i, point in enumerate(points[1:-1], 1):
+    
+    if not profile:
+        return False, 0.0
+    
+    # Calculate path distance in kilometers
+    path_distance = calculate_distance(
+        antenna.latitude, antenna.longitude,
+        target_lat, target_lon
+    )
+    
+    # Get endpoint elevations
+    start_elevation = profile[0].elevation + antenna.height
+    end_elevation = profile[-1].elevation + target_height
+    
+    # Track minimum clearance ratio
+    min_clearance_ratio = float('inf')
+    
+    # Check each point along the path
+    for i, point in enumerate(profile[1:-1], 1):
+        # Calculate ratio of distance along the path (0 to 1)
+        ratio = i / (len(profile) - 1)
+        
+        # Calculate expected height at this point (straight line)
+        expected_height = start_elevation + (end_elevation - start_elevation) * ratio
+        
         # Calculate Fresnel zone radius at this point
-        distance = distances[i - 1]
-        fresnel_radius = calculate_fresnel_zone_radius(distance, antenna.frequency)
-
-        # Required clearance is 0.6 times the first Fresnel zone radius
+        # Use point distance from start for Fresnel calculation
+        point_distance = path_distance * ratio
+        fresnel_radius = calculate_fresnel_zone_radius(point_distance, antenna.frequency)
+        
+        # Required clearance is 60% of first Fresnel zone
         required_clearance = fresnel_radius * 0.6
-
-        # Actual clearance is the difference between line of sight and terrain
-        actual_clearance = line_of_sight[i] - point.elevation
-
-        # Calculate clearance ratio
-        clearance_ratio = actual_clearance / required_clearance
-        clearances.append(clearance_ratio)
-
-        if clearance_ratio < min_clearance_ratio:
-            min_clearance_ratio = clearance_ratio
-
+        
+        # Add earth curvature correction
+        # Earth radius is approximately 6371 km
+        # Correction = d²/2R where d is distance in same units as R
+        earth_curvature = (point_distance * 1000) ** 2 / (2 * 6371000)
+        
+        # Calculate actual clearance above terrain
+        actual_clearance = expected_height - point.elevation - earth_curvature
+        
+        # Update minimum clearance ratio
+        if required_clearance > 0:
+            clearance_ratio = actual_clearance / required_clearance
+            min_clearance_ratio = min(min_clearance_ratio, clearance_ratio)
+    
     # We have line of sight if all clearance ratios are >= 1
     has_line_of_sight = min_clearance_ratio >= 1
-
-    logger.debug(f"Line of sight check from {antenna.name} to ({target_lat}, {target_lon}):")
-    logger.debug(f"- Minimum clearance ratio: {min_clearance_ratio:.2f}")
-    logger.debug(f"- Has line of sight: {has_line_of_sight}")
-
+    
     return has_line_of_sight, min_clearance_ratio
 
 
 def calculate_terrain_loss(clearance_ratio: float) -> float:
     """
     Calculate additional path loss due to terrain obstruction.
-
+    
     Args:
         clearance_ratio: Ratio of actual clearance to required Fresnel zone clearance
-
+    
     Returns:
         Additional loss in dB
     """
-    if clearance_ratio >= 1:
-        return 0
+    if clearance_ratio >= 1.0:
+        return 0.0  # No additional loss when Fresnel zone is clear
     elif clearance_ratio <= 0:
-        return float("inf")
-    else:
-        # Simplified knife-edge diffraction model
-        # Loss increases as clearance ratio decreases
-        return -20 * math.log10(clearance_ratio)
+        return float('inf')  # Complete obstruction
+    
+    # Calculate loss based on clearance ratio
+    # Uses ITU-R P.526 approximation for knife-edge diffraction
+    v = -0.6 + math.sqrt(2) * (1 - clearance_ratio)
+    loss = 6.9 + 20 * math.log10(math.sqrt((v - 0.1) ** 2 + 1) + v - 0.1)
+    
+    return max(0.0, loss)
 
 
 def estimate_coverage_radius(
     antenna: Antenna,
     elevation_data: Optional[ElevationData] = None,
-    min_signal_strength: float = -80,
+    min_signal_strength: float = -80
 ) -> float:
     """
     Estimate the maximum coverage radius for an antenna considering terrain.
@@ -204,141 +196,109 @@ def estimate_coverage_radius(
     Returns:
         Estimated coverage radius in kilometers
     """
-    logger.info(f"Estimating coverage radius for antenna {antenna.name}")
-
-    # Special handling for backhaul antennas
-    is_backhaul = "backhaul" in antenna.name.lower()
-
-    if is_backhaul:
-        # For backhaul, use free space path loss calculation to estimate range
-        # Typically backhaul links can maintain connection at lower signal strengths
-        backhaul_min_signal = -90  # dBm, backhaul radios can usually work with weaker signals
-
-        # Calculate maximum theoretical range based on FSPL formula
-        # FSPL = 20log10(d) + 20log10(f) + 92.45
-        # Solving for d: d = 10^((EIRP - min_signal - 92.45 - 20log10(f))/20)
-        eirp = antenna.power + 10 * math.log10(
-            calculate_directional_factor(antenna)
-        )  # Effective radiated power
-        max_path_loss = eirp - backhaul_min_signal
-        theoretical_range = 10 ** (
-            (max_path_loss - 92.45 - 20 * math.log10(antenna.frequency)) / 20
-        )
-
-        logger.debug(f"Backhaul theoretical range for {antenna.name}: {theoretical_range:.2f}km")
-        return min(theoretical_range, 50.0)  # Cap at 50km for practical purposes
-
-    # For non-backhaul antennas, use the original calculation
-    # Calculate base radius from 8-mile circumference
-    MILES_TO_KM = 1.60934
-    CIRCUMFERENCE_MILES = 8
-    BASE_RADIUS_MILES = CIRCUMFERENCE_MILES / (2 * math.pi)
-    BASE_RADIUS_KM = BASE_RADIUS_MILES * MILES_TO_KM
-
-    # Apply basic adjustments based on antenna height and power
-    height_factor = math.sqrt(antenna.height / 30)  # normalize to 30m reference height
-    power_factor = math.sqrt(antenna.power / 1000)  # normalize to 1000W reference power
+    # Calculate base radius from antenna parameters
+    # Start with theoretical free space path loss calculation
+    eirp = antenna.power  # Effective Isotropic Radiated Power in dBm
+    
+    # Apply antenna gain based on directional factor
     directional_factor = calculate_directional_factor(antenna)
-
-    # Calculate initial radius without terrain
-    initial_radius = BASE_RADIUS_KM * height_factor * power_factor * directional_factor
-    logger.debug(f"Initial radius estimate for {antenna.name}: {initial_radius:.2f}km")
-
-    if elevation_data is None:
+    eirp += 10 * math.log10(directional_factor)
+    
+    # Maximum allowable path loss
+    max_path_loss = eirp - min_signal_strength
+    
+    # Calculate initial radius using free space path loss formula
+    # FSPL = 20log10(d) + 20log10(f) + 92.45
+    # Solving for d: d = 10^((max_path_loss - 20log10(f) - 92.45)/20)
+    initial_radius = 10 ** ((max_path_loss - 20 * math.log10(antenna.frequency) - 92.45) / 20)
+    
+    # Apply height factor adjustment
+    # Higher antennas generally have better coverage
+    height_factor = math.sqrt(antenna.height / 30)  # Normalize to 30m reference height
+    initial_radius *= height_factor
+    
+    # For backhaul antennas, allow longer ranges
+    if "backhaul" in antenna.name.lower():
+        initial_radius = min(initial_radius * 1.5, 50.0)  # Cap at 50km
         return initial_radius
-
-    # Get antenna base elevation
-    antenna_base_elevation = elevation_data.get_elevation(antenna.latitude, antenna.longitude)
-    if antenna_base_elevation is None:  # Failed to get elevation data
-        logger.warning(f"Could not get elevation data for {antenna.name}, using initial radius")
-        return initial_radius
-
-    antenna_height = antenna_base_elevation + antenna.height
-    logger.debug(
-        f"Antenna {antenna.name} base elevation: {antenna_base_elevation}m, total height: {antenna_height}m"
-    )
-
-    # Sample points in different directions
-    angles = np.linspace(0, 360, 36)  # Every 10 degrees
-    radii = []
-
-    for angle in angles:
-        # Convert angle to radians
-        rad = math.radians(angle)
-
-        # Try different distances with more granular sampling
-        distances = np.linspace(
-            0.1, initial_radius * 1.2, 30
-        )  # Test 30 points from 100m to 120% of initial radius
-        max_distance = 0.1  # Minimum 100m radius
-
-        for distance in distances:
-            # Calculate test point location
-            dlat = distance * math.cos(rad) / 111  # Approx km per degree
-            dlon = distance * math.sin(rad) / (111 * math.cos(math.radians(antenna.latitude)))
-
-            test_lat = antenna.latitude + dlat
-            test_lon = antenna.longitude + dlon
-
-            # Get elevation profile
-            profile = elevation_data.get_elevation_profile(
-                antenna.latitude, antenna.longitude, test_lat, test_lon, num_points=20
-            )
-
-            if not profile:  # Skip if we couldn't get elevation data
-                logger.warning(
-                    f"Could not get elevation profile for {antenna.name} at angle {angle}"
+    
+    # For regular antennas, consider terrain if available
+    if elevation_data:
+        # Sample points in different directions
+        angles = np.linspace(0, 360, 36)  # Every 10 degrees
+        radii = []
+        
+        for angle in angles:
+            angle_rad = math.radians(angle)
+            max_radius = initial_radius
+            
+            # Binary search for maximum radius with line of sight
+            min_r = 0.1  # 100m minimum
+            max_r = initial_radius
+            
+            while max_r - min_r > 0.1:  # 100m precision
+                test_r = (min_r + max_r) / 2
+                
+                # Calculate test point location
+                dx = test_r * math.cos(angle_rad) / 111.0
+                dy = test_r * math.sin(angle_rad)
+                test_lat = antenna.latitude + dy
+                test_lon = antenna.longitude + dx / math.cos(math.radians(antenna.latitude))
+                
+                # Check line of sight to this point
+                has_los, clearance = check_line_of_sight(
+                    antenna, test_lat, test_lon,
+                    5.0,  # Assume 5m receiver height
+                    elevation_data
                 )
-                continue
-
-            # Get end point elevation and add receiver height
-            end_elevation = profile[-1].elevation + 5  # Assume 5m receiver height
-
-            # Check if we have a clear path
-            has_los = True
-
-            # Calculate Fresnel zone radius at midpoint
-            wavelength = 3e8 / (antenna.frequency * 1e9)  # Convert GHz to Hz
-            fresnel_radius = math.sqrt(wavelength * distance * 1000 / 4)  # in meters
-
-            # Check each point along the path
-            for i, point in enumerate(profile[1:-1], 1):  # Skip first and last points
-                # Calculate ratio along the path
-                ratio = i / (len(profile) - 1)
-
-                # Calculate expected height at this point (straight line)
-                expected_height = antenna_height + (end_elevation - antenna_height) * ratio
-
-                # Calculate required clearance (60% of first Fresnel zone)
-                required_clearance = fresnel_radius * 0.6
-
-                # Add earth curvature correction
-                # Earth's radius is approximately 6371 km
-                earth_curvature = (distance * 1000 * ratio) ** 2 / (2 * 6371000)
-
-                # Check if terrain blocks the path
-                if point.elevation > (expected_height - required_clearance - earth_curvature):
-                    has_los = False
-                    break
-
-            if has_los:
-                # Calculate path loss
-                path_loss = calculate_free_space_path_loss(distance, antenna.frequency)
-                received_power = antenna.power - path_loss
-
-                # Update max distance if signal is strong enough
-                if received_power >= min_signal_strength:
-                    max_distance = distance
+                
+                if has_los:
+                    min_r = test_r  # Can try farther
                 else:
-                    break
-            else:
-                break
+                    max_r = test_r  # Need to try closer
+            
+            radii.append(min_r)
+        
+        # Use the median radius to avoid outliers
+        final_radius = np.median(radii)
+    else:
+        final_radius = initial_radius
+    
+    # Cap the radius at reasonable values based on antenna type
+    if "sector" in antenna.name.lower():
+        final_radius = min(final_radius, 15.0)  # 15km max for sector antennas
+    else:
+        final_radius = min(final_radius, 8.0)   # 8km max for standard antennas
+    
+    return max(0.5, final_radius)  # Minimum 500m radius
 
-        radii.append(max_distance)
-        logger.debug(f"Maximum distance at {angle}°: {max_distance:.2f}km")
 
-    # Use the median radius as our final estimate
-    final_radius = np.median(radii)
-    logger.info(f"Final coverage radius for {antenna.name}: {final_radius:.2f}km")
+def calculate_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """
+    Calculate distance between two points on the Earth's surface.
 
-    return final_radius
+    Args:
+        lat1: Latitude of the first point
+        lon1: Longitude of the first point
+        lat2: Latitude of the second point
+        lon2: Longitude of the second point
+
+    Returns:
+        Distance in kilometers
+    """
+    # Convert degrees to radians
+    lat1_rad = math.radians(lat1)
+    lon1_rad = math.radians(lon1)
+    lat2_rad = math.radians(lat2)
+    lon2_rad = math.radians(lon2)
+
+    # Haversine formula
+    dlon = lon2_rad - lon1_rad
+    dlat = lat2_rad - lat1_rad
+    a = math.sin(dlat / 2) ** 2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon / 2) ** 2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+    # Earth's radius in kilometers
+    R = 6371
+
+    return R * c
